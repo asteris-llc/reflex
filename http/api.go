@@ -12,11 +12,12 @@ import (
 )
 
 type API struct {
-	store state.Storer
+	store  state.Storer
+	Events chan *state.Event
 }
 
 func NewAPI(store state.Storer) *API {
-	return &API{store}
+	return &API{store, make(chan *state.Event)}
 }
 
 func (a *API) Serve(addr string) {
@@ -39,7 +40,7 @@ func (a *API) Serve(addr string) {
 	tasks.Methods("PUT", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
 
 	// events
-	eventsHandler := EventsHandler{a.store.Events()}
+	eventsHandler := EventsHandler{a.store.Events(), a.Events}
 
 	event := v1.PathPrefix("/events/{id}").Subrouter()
 	event.Methods("GET").HandlerFunc(eventsHandler.Get)
@@ -49,6 +50,8 @@ func (a *API) Serve(addr string) {
 	events.Methods("GET").HandlerFunc(eventsHandler.List)
 	events.Methods("POST").HandlerFunc(eventsHandler.Create)
 	events.Methods("PUT", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
+
+	// set up event handlers
 
 	n := negroni.New()
 	n.Use(negroni.NewRecovery())

@@ -26,9 +26,16 @@ type Event struct {
 	Meta     map[string]string `json:"meta"`
 }
 
+type IOPair struct {
+	Task       *Task
+	Event      *Event
+	InProgress bool
+}
+
 type TaskStorer interface {
 	List() ([]*Task, error)
 	Get(string) (*Task, error)
+	GetBySubscription(string) ([]*Task, error)
 	Update(*Task) error
 	Delete(string) error
 }

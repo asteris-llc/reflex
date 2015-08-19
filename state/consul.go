@@ -66,6 +66,30 @@ func (c *ConsulTaskStore) Get(id string) (*Task, error) {
 	return task, err
 }
 
+func (c *ConsulTaskStore) GetBySubscription(sub string) ([]*Task, error) {
+	kvs, _, err := c.client.List(c.inPath("tasks"), new(api.QueryOptions))
+	if err != nil {
+		return nil, err
+	}
+
+	tasks := []*Task{}
+	for _, kv := range kvs {
+		task := new(Task)
+		err := json.Unmarshal(kv.Value, &task)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, listen := range task.SubscribesTo {
+			if listen == sub {
+				tasks = append(tasks, task)
+			}
+		}
+	}
+
+	return tasks, nil
+}
+
 func (c *ConsulTaskStore) Update(e *Task) error {
 	// TODO: use check-and-set
 	blob, err := json.Marshal(e)

@@ -13,12 +13,12 @@ import (
 type ReflexScheduler struct {
 	executor *mesos.ExecutorInfo
 
-	In  chan *state.Task
-	Out chan *state.Task
+	In  chan *state.IOPair
+	Out chan *state.Event
 
 	// task pool
 	taskLock     sync.Mutex
-	waitingTasks []*state.Task
+	waitingPairs []*state.IOPair
 
 	// meta-state
 	context context.Context
@@ -30,11 +30,11 @@ func NewScheduler(exec *mesos.ExecutorInfo) *ReflexScheduler {
 
 	sched := &ReflexScheduler{
 		executor: exec,
-		In:       make(chan *state.Task),
-		Out:      make(chan *state.Task, 100), // TODO: make this buffer configurable
+		In:       make(chan *state.IOPair),
+		Out:      make(chan *state.Event, 100), // TODO: make this buffer configurable
 
 		taskLock:     sync.Mutex{},
-		waitingTasks: []*state.Task{},
+		waitingPairs: []*state.IOPair{},
 
 		context: context,
 		cancel:  cancel,
@@ -48,8 +48,9 @@ func NewScheduler(exec *mesos.ExecutorInfo) *ReflexScheduler {
 func (sched *ReflexScheduler) slurpTasks() {
 	for {
 		select {
-		case task := <-sched.In:
-			sched.waitingTasks = append(sched.waitingTasks, task)
+		case pair := <-sched.In:
+			logrus.WithField("pair", pair).Debug("slurping task")
+			sched.waitingPairs = append(sched.waitingPairs, pair)
 		case <-sched.context.Done():
 			logrus.Info("stopping task slurper")
 			return
@@ -107,7 +108,20 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 		logrus.WithFields(logrus.Fields{
 			"cpus": cpus,
 			"mem":  mem,
-		}).Info("got offer")
+		}).Debug("got offer")
+
+		for _, pair := range sched.waitingPairs {
+			if pair.InProgress {
+				continue
+			}
+
+			task := pair.Task
+			if cpus >= task.CPU && mem >= task.Mem {
+				logrus.WithField("task", task).Info("would have launched a task")
+			}
+		}
+
+		driver.DeclineOffer(offer.GetId(), new(mesos.Filters))
 	}
 }
 

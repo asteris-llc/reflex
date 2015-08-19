@@ -1,6 +1,7 @@
 package http
 
 import (
+	"code.google.com/p/go-uuid/uuid"
 	"encoding/json"
 	"github.com/asteris-llc/reflex/state"
 	"github.com/gorilla/mux"
@@ -9,11 +10,12 @@ import (
 )
 
 type EventsHandler struct {
-	store state.EventStorer
+	events    state.EventStorer
+	NewEvents chan *state.Event
 }
 
-func (t *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
-	events, err := t.store.List()
+func (e *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
+	events, err := e.events.List()
 	if err != nil {
 		HandleError(err, w)
 		return
@@ -30,10 +32,10 @@ func (t *EventsHandler) List(w http.ResponseWriter, r *http.Request) {
 	w.Write(blob)
 }
 
-func (t *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
+func (e *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
-	event, err := t.store.Get(id)
+	event, err := e.events.Get(id)
 	if err == state.ErrNoEvent {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(err.Error()))
@@ -53,7 +55,7 @@ func (t *EventsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	w.Write(blob)
 }
 
-func (t *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (e *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	blob, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		HandleError(err, w)
@@ -68,11 +70,15 @@ func (t *EventsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = t.store.Update(event)
+	event.ID = uuid.NewRandom().String()
+
+	err = e.events.Update(event)
 	if err != nil {
 		HandleError(err, w)
 		return
 	}
+
+	e.NewEvents <- event
 
 	headers := w.Header()
 	headers.Add("Location", "/1/events/"+event.ID)

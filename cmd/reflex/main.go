@@ -12,22 +12,7 @@ import (
 	sched "github.com/mesos/mesos-go/scheduler"
 )
 
-func startAPI() {
-	client, err := api.NewClient(&api.Config{
-		Address: "localhost:8500",
-		Scheme:  "http",
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	store := state.NewConsulStore("reflex", client)
-
-	api := http.NewAPI(store)
-	api.Serve("localhost:4000")
-}
-
-func startScheduler() *scheduler.ReflexScheduler {
+func startScheduler() (reflex *scheduler.ReflexScheduler, start func()) {
 	exec := &mesos.ExecutorInfo{
 		ExecutorId: util.NewExecutorID("default"),
 		Name:       proto.String("BH executor (Go)"),
@@ -57,7 +42,7 @@ func startScheduler() *scheduler.ReflexScheduler {
 	// 	}
 	// }
 
-	reflex := scheduler.NewScheduler(exec)
+	reflex = scheduler.NewScheduler(exec)
 
 	config := sched.DriverConfig{
 		Scheduler: reflex,
@@ -66,7 +51,7 @@ func startScheduler() *scheduler.ReflexScheduler {
 		// Credential: cred,
 	}
 
-	go func() {
+	start = func() {
 		driver, err := sched.NewMesosSchedulerDriver(config)
 		if err != nil {
 			logrus.WithField("error", err).Fatal("unable to create a SchedulerDriver")
@@ -77,13 +62,52 @@ func startScheduler() *scheduler.ReflexScheduler {
 				"error":  err,
 			}).Info("framework stopped")
 		}
-	}()
+	}
 
-	return reflex
+	return reflex, start
+}
+
+func newStore() *state.ConsulStore {
+	client, err := api.NewClient(&api.Config{
+		Address: "localhost:8500",
+		Scheme:  "http",
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return state.NewConsulStore("reflex", client)
+}
+
+func HandleNewEvents(store state.TaskStorer, events chan *state.Event, out chan *state.IOPair) {
+	for {
+		event := <-events
+		logrus.WithField("event", event).Debug("new event")
+
+		tasks, err := store.GetBySubscription(event.Type)
+		if err != nil {
+			panic(err) // TODO: make this not suck
+		}
+
+		for _, task := range tasks {
+			out <- &state.IOPair{
+				Event: event,
+				Task:  task,
+			}
+		}
+	}
 }
 
 func main() {
-	reflex := startScheduler()
-	logrus.Info(reflex)
-	startAPI()
+	logrus.SetLevel(logrus.DebugLevel)
+
+	store := newStore()
+
+	api := http.NewAPI(store)
+	go api.Serve("localhost:4000")
+
+	reflex, start := startScheduler()
+
+	go HandleNewEvents(store.Tasks(), api.Events, reflex.In)
+	start()
 }

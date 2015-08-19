@@ -19,10 +19,11 @@ type Task struct {
 }
 
 type Event struct {
-	ID      string            `json:"id"`
-	Type    string            `json:"type"`
-	Payload []byte            `json:"payload"`
-	Meta    map[string]string `json:"meta"`
+	ID       string            `json:"id"`
+	Resolved bool              `json:"resolved"`
+	Type     string            `json:"type"`
+	Payload  []byte            `json:"payload"`
+	Meta     map[string]string `json:"meta"`
 }
 
 type TaskStorer interface {

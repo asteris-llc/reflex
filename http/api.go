@@ -2,6 +2,7 @@ package http
 
 import (
 	"github.com/Sirupsen/logrus"
+	"github.com/asteris-llc/reflex/state"
 	"github.com/codegangsta/negroni"
 	"github.com/gorilla/mux"
 	negronilogrus "github.com/meatballhat/negroni-logrus"
@@ -10,7 +11,13 @@ import (
 	"time"
 )
 
-type API struct{}
+type API struct {
+	store state.Storer
+}
+
+func NewAPI(store state.Storer) *API {
+	return &API{store}
+}
 
 func (a *API) Serve(addr string) {
 	router := mux.NewRouter()
@@ -18,7 +25,7 @@ func (a *API) Serve(addr string) {
 	v1 := router.PathPrefix("/1").Subrouter()
 
 	// tasks
-	tasksHandler := TasksHandler{}
+	tasksHandler := TasksHandler{a.store.Tasks()}
 
 	task := v1.PathPrefix("/tasks/{id}").Subrouter()
 	task.Methods("GET").HandlerFunc(tasksHandler.Get)

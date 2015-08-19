@@ -39,7 +39,7 @@ func (a *API) Serve(addr string) {
 	tasks.Methods("PUT", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
 
 	// events
-	eventsHandler := EventsHandler{}
+	eventsHandler := EventsHandler{a.store.Events()}
 
 	event := v1.PathPrefix("/events/{id}").Subrouter()
 	event.Methods("GET").HandlerFunc(eventsHandler.Get)

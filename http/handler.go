@@ -17,16 +17,30 @@ func (a *API) Serve(addr string) {
 
 	v1 := router.PathPrefix("/1").Subrouter()
 
+	// tasks
 	tasksHandler := TasksHandler{}
-	tasks := v1.PathPrefix("/tasks").Subrouter()
-	tasks.Methods("GET").HandlerFunc(tasksHandler.List)
-	tasks.Methods("PUT", "POST", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
 
-	task := tasks.PathPrefix("/{id}").Subrouter()
+	task := v1.PathPrefix("/tasks/{id}").Subrouter()
 	task.Methods("GET").HandlerFunc(tasksHandler.Get)
 	task.Methods("PUT").HandlerFunc(tasksHandler.Set)
 	task.Methods("DELETE").HandlerFunc(tasksHandler.Delete)
 	task.Methods("POST", "PATCH").HandlerFunc(MethodNotAllowed)
+
+	tasks := v1.PathPrefix("/tasks").Subrouter()
+	tasks.Methods("GET").HandlerFunc(tasksHandler.List)
+	tasks.Methods("PUT", "POST", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
+
+	// events
+	eventsHandler := EventsHandler{}
+
+	event := v1.PathPrefix("/events/{id}").Subrouter()
+	event.Methods("GET").HandlerFunc(eventsHandler.Get)
+	event.Methods("PUT", "POST", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
+
+	events := v1.PathPrefix("/events").Subrouter()
+	events.Methods("GET").HandlerFunc(eventsHandler.List)
+	events.Methods("POST").HandlerFunc(eventsHandler.Create)
+	events.Methods("PUT", "DELETE", "PATCH").HandlerFunc(MethodNotAllowed)
 
 	n := negroni.New()
 	n.Use(negroni.NewRecovery())

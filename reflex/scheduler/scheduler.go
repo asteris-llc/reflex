@@ -1,23 +1,51 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"github.com/Sirupsen/logrus"
-	// "github.com/gogo/protobuf/proto"
+	"github.com/asteris-llc/reflex/reflex/logic"
+	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
-	// util "github.com/mesos/mesos-go/mesosutil"
+	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
 )
 
 type ReflexScheduler struct {
 	executor *mesos.ExecutorInfo
+	filters  *mesos.Filters
+	logic    *logic.Logic
 }
 
-func NewScheduler(exec *mesos.ExecutorInfo) *ReflexScheduler {
+func NewScheduler(exec *mesos.ExecutorInfo, logic *logic.Logic) (*ReflexScheduler, error) {
 	sched := &ReflexScheduler{
 		executor: exec,
+		filters:  new(mesos.Filters), // TODO: make timeout tunable
+		logic:    logic,
 	}
 
-	return sched
+	return sched, nil
+}
+
+func (r *ReflexScheduler) Start(fwinfo *mesos.FrameworkInfo, master string) {
+	config := sched.DriverConfig{
+		Scheduler: r,
+		Framework: fwinfo,
+		Master:    master,
+		// TODO: Credential: cred,
+	}
+
+	driver, err := sched.NewMesosSchedulerDriver(config)
+	if err != nil {
+		logrus.WithField("error", err).Fatal("could not create MesosSchedulerDriver")
+		return
+	}
+
+	if stat, err := driver.Run(); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"status": stat.String(),
+			"error":  err,
+		}).Fatal("framework stopped")
+	}
 }
 
 // TODO: where does reconciliation go here?
@@ -49,7 +77,7 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 			case "cpus":
 				cpus += res.GetScalar().GetValue()
 			case "mem":
-				cpus += res.GetScalar().GetValue()
+				mem += res.GetScalar().GetValue()
 			}
 		}
 
@@ -60,73 +88,87 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 
 		tasks := []*mesos.TaskInfo{}
 
-		// TODO: get a list of things that should be running from logic, and try to
-		// schedule some of them. Let the status messages reflect the actual run
-		// state back to logic.
+		for _, pair := range sched.logic.ToSchedule() {
+			logrus.WithField("id", pair.ID).Debug("scheduling task")
+			task := pair.Task
 
-		// TODO: move this to logic
-		// for _, pair := range sched.waitingPairs {
-		// 	if pair.InProgress {
-		// 		continue
-		// 	}
+			// stop early if the offer isn't big enough
+			if cpus <= task.CPU || mem <= task.Mem {
+				logrus.WithFields(logrus.Fields{
+					"pair":       pair,
+					"cpusReq":    task.CPU,
+					"cpusActual": cpus,
+					"memReq":     task.Mem,
+					"memActual":  mem,
+				}).Debug("remaining offer not big enough")
+				continue
+			}
 
-		// 	task := pair.Task
-		// 	event := pair.Event
+			payload, err := json.Marshal(pair)
+			if err != nil {
+				panic(err) // TODO: handle this more gracefully
+			}
 
-		// 	if cpus >= task.CPU && mem >= task.Mem {
+			info := &mesos.TaskInfo{
+				TaskId: &mesos.TaskID{
+					Value: proto.String(pair.ID),
+				},
+				Name:    proto.String("EXEC_reflex-" + pair.ID),
+				SlaveId: offer.SlaveId,
+				Resources: []*mesos.Resource{
+					util.NewScalarResource("cpus", task.CPU),
+					util.NewScalarResource("mem", task.Mem),
+				},
+				Executor: &mesos.ExecutorInfo{
+					ExecutorId: &mesos.ExecutorID{Value: proto.String("reflex-exeutor")},
+					Name:       proto.String("reflex-executor"),
+					Command: &mesos.CommandInfo{
+						Value: proto.String("asdfasdfasdf"),
+						Uris:  []*mesos.CommandInfo_URI{},
+					},
+					Data: payload,
+				},
+			}
 
-		// 		info := &mesos.TaskInfo{
-		// 			TaskId: &mesos.TaskID{
-		// 				Value: proto.String("reflex-" + event.ID),
-		// 			},
-		// 			Name:    proto.String("EXEC_reflex-" + event.ID),
-		// 			SlaveId: offer.SlaveId,
-		// 			Resources: []*mesos.Resource{
-		// 				util.NewScalarResource("cpus", task.CPU),
-		// 				util.NewScalarResource("mem", task.Mem),
-		// 			},
-		// 			Executor: &mesos.ExecutorInfo{
-		// 				ExecutorId: &mesos.ExecutorID{Value: proto.String("reflex-executor")},
-		// 				Command: &mesos.CommandInfo{
-		// 					Value: proto.String("cat"),
-		// 				},
-		// 				Name: proto.String("reflex"),
-		// 			},
-		// 			Data: event.Payload,
-		// 		}
+			tasks = append(tasks, info)
+			sched.logic.TaskStarted(pair.ID)
 
-		// 		tasks = append(tasks, info)
+			cpus -= task.CPU
+			mem -= task.CPU
 
-		// 		cpus -= task.CPU
-		// 		mem -= task.CPU
-		// 	}
-
-		// 	if cpus <= 0 || mem <= 0 {
-		// 		break
-		// 	}
-		// }
-
-		filters := new(mesos.Filters)
+			if cpus <= 0 || mem <= 0 {
+				break
+			}
+		}
 
 		if len(tasks) == 0 {
-			driver.DeclineOffer(offer.GetId(), filters)
+			driver.DeclineOffer(offer.GetId(), sched.filters) // TODO: handle error
 		} else {
-			driver.LaunchTasks(
+			_, err := driver.LaunchTasks(
 				[]*mesos.OfferID{offer.GetId()},
 				tasks,
-				filters,
+				sched.filters,
 			)
+			if err != nil {
+				panic(err) // TODO: handle this more gracefully
+			}
 		}
 	}
 }
 
 func (sched *ReflexScheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
-	// TODO: extract the ID and send these task updates to logic, along with a
-	// "nice" version of the task status.
-
 	logrus.WithFields(logrus.Fields{
 		"status": status, // TODO: parse these fields out so it's not such a mess
 	}).Info("got status update")
+
+	switch *status.State {
+	case mesos.TaskState_TASK_STAGING, mesos.TaskState_TASK_STARTING, mesos.TaskState_TASK_RUNNING:
+		sched.logic.TaskStarted(*status.TaskId.Value)
+	case mesos.TaskState_TASK_FAILED, mesos.TaskState_TASK_ERROR, mesos.TaskState_TASK_KILLED, mesos.TaskState_TASK_LOST: // IE: only failure terminal states
+		sched.logic.TaskFinished(*status.TaskId.Value, false)
+	case mesos.TaskState_TASK_FINISHED: // IE: only successful terminal states
+		sched.logic.TaskFinished(*status.TaskId.Value, true)
+	}
 }
 
 func (sched *ReflexScheduler) OfferRescinded(sched.SchedulerDriver, *mesos.OfferID) {}

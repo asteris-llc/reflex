@@ -1,9 +1,12 @@
 package scheduler
 
 import (
+	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/asteris-llc/reflex/state"
+	"github.com/gogo/protobuf/proto"
 	mesos "github.com/mesos/mesos-go/mesosproto"
+	"github.com/mesos/mesos-go/mesosutil"
 	util "github.com/mesos/mesos-go/mesosutil"
 	sched "github.com/mesos/mesos-go/scheduler"
 	"golang.org/x/net/context"
@@ -110,22 +113,65 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 			"mem":  mem,
 		}).Debug("got offer")
 
+		tasks := []*mesos.TaskInfo{}
+
 		for _, pair := range sched.waitingPairs {
 			if pair.InProgress {
 				continue
 			}
 
 			task := pair.Task
+			event := pair.Event
+
 			if cpus >= task.CPU && mem >= task.Mem {
-				logrus.WithField("task", task).Info("would have launched a task")
+
+				info := &mesos.TaskInfo{
+					TaskId: &mesos.TaskID{
+						Value: proto.String("reflex-" + event.ID),
+					},
+					Name:    proto.String("EXEC_reflex-" + event.ID),
+					SlaveId: offer.SlaveId,
+					Resources: []*mesos.Resource{
+						mesosutil.NewScalarResource("cpus", task.CPU),
+						mesosutil.NewScalarResource("mem", task.Mem),
+					},
+					Executor: &mesos.ExecutorInfo{
+						ExecutorId: &mesos.ExecutorID{Value: proto.String("reflex-executor")},
+						Command: &mesos.CommandInfo{
+							Value: proto.String("cat"),
+						},
+						Name: proto.String("reflex"),
+					},
+					Data: event.Payload,
+				}
+
+				tasks = append(tasks, info)
+
+				cpus -= task.CPU
+				mem -= task.CPU
+			}
+
+			if cpus <= 0 || mem <= 0 {
+				break
 			}
 		}
 
-		driver.DeclineOffer(offer.GetId(), new(mesos.Filters))
+		filters := new(mesos.Filters)
+
+		if len(tasks) == 0 {
+			driver.DeclineOffer(offer.GetId(), filters)
+		} else {
+			driver.LaunchTasks(
+				[]*mesos.OfferID{offer.GetId()},
+				tasks,
+				filters,
+			)
+		}
 	}
 }
 
 func (sched *ReflexScheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
+	fmt.Printf("%+v\n", status)
 	logrus.WithFields(logrus.Fields{
 		"task":  status.TaskId.GetValue(),
 		"state": status.State.Enum().String(),

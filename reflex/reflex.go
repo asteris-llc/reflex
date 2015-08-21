@@ -3,6 +3,7 @@ package reflex
 import (
 	"github.com/asteris-llc/reflex/reflex/http"
 	"github.com/asteris-llc/reflex/reflex/logic"
+	"github.com/asteris-llc/reflex/reflex/scheduler"
 	"golang.org/x/net/context"
 )
 
@@ -38,6 +39,18 @@ func (r *Reflex) Start() error {
 		Components: []http.Registerer{api},
 	}
 	go http.ServeHTTP(r.opts.Address) // TODO: figure out how to stop this
+
+	// Logic and Scheduler
+	logic, err := logic.NewLogic(r.context, events)
+	if err != nil {
+		return err
+	}
+	logic.Start()
+
+	// Scheduler
+	exec, fwinfo := mesosExecutorMeta()
+	sched, err := scheduler.NewScheduler(exec, logic)
+	go sched.Start(fwinfo, "localhost:5050")
 
 	<-r.context.Done()
 

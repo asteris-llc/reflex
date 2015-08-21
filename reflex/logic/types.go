@@ -16,6 +16,10 @@ type Event struct {
 }
 
 type IOPair struct {
-	Task  *Task
-	Event *Event
+	ID    string `json:"id"`
+	Task  *Task  `json:"task"`
+	Event *Event `json:"event"`
+
+	// task state
+	Scheduled bool `json:"-"`
 }

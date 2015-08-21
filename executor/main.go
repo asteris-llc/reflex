@@ -5,6 +5,7 @@ import (
 	exec "github.com/mesos/mesos-go/executor"
 )
 
+// TODO: move this functionality underneath `cmd`
 func main() {
 	logrus.Info("starting reflex executor")
 

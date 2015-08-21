@@ -60,7 +60,12 @@ func (r *Reflex) Start() error {
 
 	// Scheduler
 	exec, fwinfo := mesosExecutorMeta()
-	sched, err := scheduler.NewScheduler(exec, logic)
+	sched, err := scheduler.NewScheduler(
+		exec,
+		logic,
+		"http://"+r.opts.Address+"/artifacts",
+		[]string{"reflex-executor"},
+	)
 	go sched.Start(fwinfo, "localhost:5050")
 
 	<-r.context.Done()

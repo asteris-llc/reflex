@@ -11,17 +11,31 @@ import (
 )
 
 type ReflexScheduler struct {
-	executor *mesos.ExecutorInfo
-	filters  *mesos.Filters
-	logic    *logic.Logic
+	executor  *mesos.ExecutorInfo
+	filters   *mesos.Filters
+	logic     *logic.Logic
+	artifacts []*mesos.CommandInfo_URI
 }
 
-func NewScheduler(exec *mesos.ExecutorInfo, logic *logic.Logic) (*ReflexScheduler, error) {
+func NewScheduler(exec *mesos.ExecutorInfo, logic *logic.Logic, artifactBase string, artifacts []string) (*ReflexScheduler, error) {
 	sched := &ReflexScheduler{
 		executor: exec,
 		filters:  new(mesos.Filters), // TODO: make timeout tunable
 		logic:    logic,
 	}
+
+	// compose artifacts
+	sched.artifacts = []*mesos.CommandInfo_URI{}
+	for _, artifact := range artifacts {
+		sched.artifacts = append(
+			sched.artifacts,
+			&mesos.CommandInfo_URI{
+				Value:      proto.String(artifactBase + "/" + artifact),
+				Executable: proto.Bool(true),
+			},
+		)
+	}
+	logrus.Info(sched.artifacts)
 
 	return sched, nil
 }
@@ -123,8 +137,8 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 					ExecutorId: &mesos.ExecutorID{Value: proto.String("reflex-exeutor")},
 					Name:       proto.String("reflex-executor"),
 					Command: &mesos.CommandInfo{
-						Value: proto.String("asdfasdfasdf"),
-						Uris:  []*mesos.CommandInfo_URI{},
+						Value: proto.String("./reflex-executor"),
+						Uris:  sched.artifacts,
 					},
 					Data: payload,
 				},

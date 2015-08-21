@@ -9,7 +9,7 @@ func main() {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	r, err := reflex.New(&reflex.Options{
-		Address: ":4000",
+		Address: "127.0.0.1:4000",
 	})
 	if err != nil {
 		panic(err)

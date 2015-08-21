@@ -4,6 +4,7 @@ import (
 	"github.com/asteris-llc/reflex/reflex/http"
 	"github.com/asteris-llc/reflex/reflex/logic"
 	"github.com/asteris-llc/reflex/reflex/scheduler"
+	"github.com/kardianos/osext"
 	"golang.org/x/net/context"
 )
 
@@ -35,8 +36,18 @@ func (r *Reflex) Start() error {
 	if err != nil {
 		return err
 	}
+
+	local, err := osext.ExecutableFolder()
+	if err != nil {
+		return err
+	}
+	artifacts, err := http.NewArtifacts(local)
+	if err != nil {
+		return err
+	}
+
 	http := http.HTTP{
-		Components: []http.Registerer{api},
+		Components: []http.Registerer{api, artifacts},
 	}
 	go http.ServeHTTP(r.opts.Address) // TODO: figure out how to stop this
 

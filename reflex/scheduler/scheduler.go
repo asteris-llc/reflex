@@ -20,6 +20,8 @@ func NewScheduler(exec *mesos.ExecutorInfo) *ReflexScheduler {
 	return sched
 }
 
+// TODO: where does reconciliation go here?
+
 func (sched *ReflexScheduler) Registered(driver sched.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
 	logrus.WithFields(logrus.Fields{
 		"masterInfo": masterInfo,
@@ -57,6 +59,10 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 		}).Debug("got offer")
 
 		tasks := []*mesos.TaskInfo{}
+
+		// TODO: get a list of things that should be running from logic, and try to
+		// schedule some of them. Let the status messages reflect the actual run
+		// state back to logic.
 
 		// TODO: move this to logic
 		// for _, pair := range sched.waitingPairs {
@@ -115,6 +121,9 @@ func (sched *ReflexScheduler) ResourceOffers(driver sched.SchedulerDriver, offer
 }
 
 func (sched *ReflexScheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
+	// TODO: extract the ID and send these task updates to logic, along with a
+	// "nice" version of the task status.
+
 	logrus.WithFields(logrus.Fields{
 		"status": status, // TODO: parse these fields out so it's not such a mess
 	}).Info("got status update")

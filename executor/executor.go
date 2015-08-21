@@ -1,13 +1,18 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/Sirupsen/logrus"
+	"github.com/asteris-llc/reflex/reflex/logic"
 	exec "github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
+	"github.com/samalba/dockerclient"
+	"os"
 )
 
 type ReflexExecutor struct {
-	data []byte
+	data *logic.IOPair
 }
 
 func newReflexExecutor() *ReflexExecutor {
@@ -15,20 +20,30 @@ func newReflexExecutor() *ReflexExecutor {
 }
 
 func (exec *ReflexExecutor) Registered(driver exec.ExecutorDriver, execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
-	exec.data = execInfo.Data
-	fmt.Println("Registered Executor on slave ", slaveInfo.GetHostname())
+	data := new(logic.IOPair)
+	err := json.Unmarshal(execInfo.Data, data)
+	if err != nil {
+		logrus.WithField("error", err).Fatal("could not parse task info")
+	}
+
+	exec.data = data
+
+	logrus.WithField("host", slaveInfo.GetHostname()).Info("registered executor")
 }
 
 func (exec *ReflexExecutor) Reregistered(driver exec.ExecutorDriver, slaveInfo *mesos.SlaveInfo) {
-	fmt.Println("Re-registered Executor on slave ", slaveInfo.GetHostname())
+	logrus.WithField("host", slaveInfo.GetHostname()).Info("re-registered executor")
 }
 
 func (exec *ReflexExecutor) Disconnected(exec.ExecutorDriver) {
-	fmt.Println("Executor disconnected.")
+	logrus.Warning("executor disconnected")
 }
 
 func (exec *ReflexExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mesos.TaskInfo) {
-	fmt.Println("Launching task", taskInfo.GetName(), "with command", taskInfo.Command.GetValue())
+	logrus.WithFields(logrus.Fields{
+		"task":    taskInfo.GetName(),
+		"command": taskInfo.Command.GetValue(), // TODO: probably the image instead
+	}).Info("launching task")
 
 	runStatus := &mesos.TaskStatus{
 		TaskId: taskInfo.GetTaskId(),
@@ -36,13 +51,36 @@ func (exec *ReflexExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mes
 	}
 	_, err := driver.SendStatusUpdate(runStatus)
 	if err != nil {
-		fmt.Println("Got error", err)
+		logrus.WithField("error", err).Error("got error sending status update")
 	}
 
-	//
-	// this is where one would perform the requested task
-	//
+	// start the docker container
+	image := exec.data.Task.Image
+	// payload := exec.data.Event.Payload
 
+	client, err := dockerclient.NewDockerClient(os.Getenv("DOCKER_HOST"), nil)
+	if err != nil {
+		logrus.WithField("error", err).Error("could not start docker client")
+		// TODO: send a failed message and exit
+	}
+
+	containerId, err := client.CreateContainer(
+		&dockerclient.ContainerConfig{
+			AttachStdin: true,
+			Image:       image,
+		},
+		taskInfo.GetTaskId().String(),
+	)
+	if err != nil {
+		logrus.WithField("error", err).Error("could not create the docker container")
+	}
+
+	err = client.StartContainer(containerId, new(dockerclient.HostConfig))
+	if err != nil {
+		logrus.WithField("error", err).Error("could not start the docker container")
+	}
+
+	// TODO: move the below to a separate method for use when things fail during startup
 	// finish task
 	fmt.Println("Finishing task", taskInfo.GetName())
 
@@ -52,23 +90,24 @@ func (exec *ReflexExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mes
 	}
 	_, err = driver.SendStatusUpdate(finStatus)
 	if err != nil {
-		fmt.Println("Got error", err)
+		logrus.WithField("error", err).Error("got error sending status update")
 	}
-	fmt.Println("Task finished", taskInfo.GetName())
+
+	logrus.WithField("task", taskInfo.GetName()).Info("task finished")
 }
 
 func (exec *ReflexExecutor) KillTask(exec.ExecutorDriver, *mesos.TaskID) {
-	fmt.Println("Kill task")
+	logrus.Info("kill task")
 }
 
 func (exec *ReflexExecutor) FrameworkMessage(driver exec.ExecutorDriver, msg string) {
-	fmt.Println("Got framework message: ", msg)
+	logrus.WithField("message", msg).Info("got framework message")
 }
 
 func (exec *ReflexExecutor) Shutdown(exec.ExecutorDriver) {
-	fmt.Println("Shutting down the executor")
+	logrus.Info("shutting down the executor")
 }
 
 func (exec *ReflexExecutor) Error(driver exec.ExecutorDriver, err string) {
-	fmt.Println("Got error message:", err)
+	logrus.WithField("error", err).Error("got error message")
 }

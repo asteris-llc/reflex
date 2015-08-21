@@ -27,7 +27,7 @@ func New(opts *Options) (*Reflex, error) {
 }
 
 func (r *Reflex) Start() error {
-	events := make(chan *logic.Event, 1)
+	events := make(chan *logic.Event)
 
 	// HTTP
 	api, err := http.NewAPI(events)

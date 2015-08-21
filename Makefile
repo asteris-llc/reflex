@@ -2,10 +2,10 @@
 
 all: reflex-scheduler reflex-executor
 
-reflex-scheduler: reflex/
+reflex-scheduler: reflex/**/*
 	go build -o reflex-scheduler ./cmd/reflex/
 
-reflex-executor: executor/
+reflex-executor: executor/**/* cmd/reflex/*
 	go build -o reflex-executor ./executor/
 
 # PHONIES
